@@ -1,5 +1,5 @@
 import { DatabaseService } from '../config/database';
-import { Resource, ResourceFilters, CreateResourceDTO, UpdateResourceDTO } from '../models/resource.model';
+import { Resource, ResourceFilters, CreateResourceDTO, UpdateResourceDTO, PaginationParams, PaginatedResponse } from '../models/resource.model';
 
 export class ResourceService {
   private db = DatabaseService.getInstance().getDatabase();
@@ -21,42 +21,66 @@ export class ResourceService {
   }
 
   /**
-   * Get all resources with optional filters
+   * Get all resources with optional filters and pagination
    */
-  getAll(filters?: ResourceFilters): Resource[] {
-    let query = 'SELECT * FROM resources WHERE 1=1';
+  getAll(filters?: ResourceFilters, pagination?: PaginationParams): PaginatedResponse<Resource> {
+    const page = pagination?.page || 1;
+    const limit = pagination?.limit || 10;
+    const offset = (page - 1) * limit;
+
+    // Build WHERE clause
+    let whereClause = 'WHERE 1=1';
     const params: any[] = [];
 
     if (filters?.name) {
-      query += ' AND name LIKE ?';
+      whereClause += ' AND name LIKE ?';
       params.push(`%${filters.name}%`);
     }
 
     if (filters?.category) {
-      query += ' AND category = ?';
+      whereClause += ' AND category = ?';
       params.push(filters.category);
     }
 
     if (filters?.status) {
-      query += ' AND status = ?';
+      whereClause += ' AND status = ?';
       params.push(filters.status);
     }
 
     if (filters?.created_at) {
-      query += ' AND DATE(created_at) = DATE(?)';
+      whereClause += ' AND DATE(created_at) = DATE(?)';
       params.push(filters.created_at);
     }
 
     if (filters?.search) {
-      query += ' AND (name LIKE ? OR description LIKE ?)';
+      whereClause += ' AND (name LIKE ? OR description LIKE ?)';
       const searchTerm = `%${filters.search}%`;
       params.push(searchTerm, searchTerm);
     }
 
-    query += ' ORDER BY created_at DESC';
+    // Get total count
+    const countQuery = `SELECT COUNT(*) as total FROM resources ${whereClause}`;
+    const countStmt = this.db.prepare(countQuery);
+    const { total } = countStmt.get(...params) as { total: number };
 
-    const stmt = this.db.prepare(query);
-    return stmt.all(...params) as Resource[];
+    // Get paginated data
+    const dataQuery = `SELECT * FROM resources ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+    const dataStmt = this.db.prepare(dataQuery);
+    const resources = dataStmt.all(...params, limit, offset) as Resource[];
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data: resources,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    };
   }
 
   /**

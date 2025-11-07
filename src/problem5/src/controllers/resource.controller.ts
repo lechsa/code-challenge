@@ -1,6 +1,7 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { ResourceService } from '../services/resource.service';
-import { CreateResourceDTO, UpdateResourceDTO, ResourceFilters } from '../models/resource.model';
+import { CreateResourceDTO, UpdateResourceDTO, ResourceFilters, PaginationParams } from '../models/resource.model';
+import { AppError } from '../middleware/errorHandler';
 
 const resourceService = new ResourceService();
 
@@ -8,38 +9,25 @@ export class ResourceController {
   /**
    * POST /api/resources - Create a new resource
    */
-  static create(req: Request, res: Response): void {
+  static async create(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const data: CreateResourceDTO = req.body;
-
-      // Validation
-      if (!data.name || !data.description || !data.category) {
-        res.status(400).json({
-          success: false,
-          error: 'Missing required fields: name, description, and category are required'
-        });
-        return;
-      }
-
-      const resource = resourceService.create(data);
+      const resource = await resourceService.create(data);
 
       res.status(201).json({
         success: true,
         data: resource
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : 'Internal server error'
-      });
+      next(error);
     }
   }
 
   /**
-   * GET /api/resources - List all resources with optional filters
-   * Query params: name, category, status, created_at, search
+   * GET /api/resources - List all resources with optional filters and pagination
+   * Query params: name, category, status, created_at, search, page, limit
    */
-  static getAll(req: Request, res: Response): void {
+  static async getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const filters: ResourceFilters = {
         name: req.query.name as string,
@@ -54,45 +42,47 @@ export class ResourceController {
         filters[key as keyof ResourceFilters] === undefined && delete filters[key as keyof ResourceFilters]
       );
 
-      const resources = resourceService.getAll(filters);
+      // Pagination parameters
+      const pagination: PaginationParams = {
+        page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 10
+      };
+
+      // Validate pagination parameters
+      if (isNaN(pagination.page!) || pagination.page! < 1) {
+        throw new AppError(400, 'Invalid page number');
+      }
+      if (isNaN(pagination.limit!) || pagination.limit! < 1 || pagination.limit! > 100) {
+        throw new AppError(400, 'Invalid limit (must be between 1 and 100)');
+      }
+
+      const result = await resourceService.getAll(filters, pagination);
 
       res.status(200).json({
         success: true,
-        count: resources.length,
-        filters: filters,
-        data: resources
+        filters: Object.keys(filters).length > 0 ? filters : undefined,
+        ...result
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : 'Internal server error'
-      });
+      next(error);
     }
   }
 
   /**
    * GET /api/resources/:id - Get a single resource by ID
    */
-  static getById(req: Request, res: Response): void {
+  static async getById(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const id = parseInt(req.params.id);
 
       if (isNaN(id)) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid resource ID'
-        });
-        return;
+        throw new AppError(400, 'Invalid resource ID');
       }
 
-      const resource = resourceService.getById(id);
+      const resource = await resourceService.getById(id);
 
       if (!resource) {
-        res.status(404).json({
-          success: false,
-          error: 'Resource not found'
-        });
-        return;
+        throw new AppError(404, 'Resource not found');
       }
 
       res.status(200).json({
@@ -100,37 +90,26 @@ export class ResourceController {
         data: resource
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : 'Internal server error'
-      });
+      next(error);
     }
   }
 
   /**
    * PUT /api/resources/:id - Update a resource
    */
-  static update(req: Request, res: Response): void {
+  static async update(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const id = parseInt(req.params.id);
       const data: UpdateResourceDTO = req.body;
 
       if (isNaN(id)) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid resource ID'
-        });
-        return;
+        throw new AppError(400, 'Invalid resource ID');
       }
 
-      const resource = resourceService.update(id, data);
+      const resource = await resourceService.update(id, data);
 
       if (!resource) {
-        res.status(404).json({
-          success: false,
-          error: 'Resource not found'
-        });
-        return;
+        throw new AppError(404, 'Resource not found');
       }
 
       res.status(200).json({
@@ -138,36 +117,25 @@ export class ResourceController {
         data: resource
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : 'Internal server error'
-      });
+      next(error);
     }
   }
 
   /**
    * DELETE /api/resources/:id - Delete a resource
    */
-  static delete(req: Request, res: Response): void {
+  static async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const id = parseInt(req.params.id);
 
       if (isNaN(id)) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid resource ID'
-        });
-        return;
+        throw new AppError(400, 'Invalid resource ID');
       }
 
-      const deleted = resourceService.delete(id);
+      const deleted = await resourceService.delete(id);
 
       if (!deleted) {
-        res.status(404).json({
-          success: false,
-          error: 'Resource not found'
-        });
-        return;
+        throw new AppError(404, 'Resource not found');
       }
 
       res.status(200).json({
@@ -175,10 +143,7 @@ export class ResourceController {
         message: 'Resource deleted successfully'
       });
     } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : 'Internal server error'
-      });
+      next(error);
     }
   }
 }

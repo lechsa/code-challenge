@@ -1,0 +1,566 @@
+### Problem 5 - Express.js + TypeScript + SQLite CRUD API
+### REST Client Test File
+### Make sure the server is running on http://localhost:3400
+
+@baseUrl = http://localhost:3400
+@contentType = application/json
+
+###############################################
+# 1. Health Check
+###############################################
+
+### Check API Health Status
+GET {{baseUrl}}/health HTTP/1.1
+
+###############################################
+# 2. Root Endpoint - API Information
+###############################################
+
+### Get API Information
+GET {{baseUrl}}/ HTTP/1.1
+
+###############################################
+# 3. Create Resources
+###############################################
+
+### Create a new resource - Technology
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "GraphQL API",
+  "description": "Modern API query language for efficient data fetching",
+  "category": "technology",
+  "status": "active"
+}
+
+###
+
+### Create a new resource - Design
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "Figma Design System",
+  "description": "Component library and design tokens",
+  "category": "design",
+  "status": "active"
+}
+
+###
+
+### Create a new resource - Business
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "Customer Analytics",
+  "description": "User behavior tracking and insights",
+  "category": "business",
+  "status": "inactive"
+}
+
+###
+
+### Create resource - Missing required fields (should fail with validation error)
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "Incomplete Resource"
+}
+
+###
+
+### Create resource - Name too short (validation error)
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "ab",
+  "description": "This name is too short, must be at least 3 characters",
+  "category": "test"
+}
+
+###
+
+### Create resource - Description too short (validation error)
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "Valid Name",
+  "description": "Short",
+  "category": "test"
+}
+
+###
+
+### Create resource - Invalid status (validation error)
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "Test Resource",
+  "description": "Testing invalid status value",
+  "category": "test",
+  "status": "invalid_status"
+}
+
+###############################################
+# 4. Get All Resources
+###############################################
+
+### Get all resources (no filters)
+GET {{baseUrl}}/api/resources HTTP/1.1
+
+###
+
+### Filter by category - technology
+GET {{baseUrl}}/api/resources?category=technology HTTP/1.1
+
+###
+
+### Filter by status - active
+GET {{baseUrl}}/api/resources?status=active HTTP/1.1
+
+###
+
+### Filter by status - inactive
+GET {{baseUrl}}/api/resources?status=inactive HTTP/1.1
+
+###
+
+### Filter by name (partial match)
+GET {{baseUrl}}/api/resources?name=API HTTP/1.1
+
+###
+
+### Filter by creation date (use today's date)
+GET {{baseUrl}}/api/resources?created_at=2025-11-08 HTTP/1.1
+
+###
+
+### Search in name and description
+GET {{baseUrl}}/api/resources?search=design HTTP/1.1
+
+###
+
+### Combine multiple filters
+GET {{baseUrl}}/api/resources?category=technology&status=active HTTP/1.1
+
+###
+
+### Complex filter - name, category, and status
+GET {{baseUrl}}/api/resources?name=API&category=technology&status=active HTTP/1.1
+
+###############################################
+# 5. Pagination Tests
+###############################################
+
+### Get first page with default limit (10 items)
+GET {{baseUrl}}/api/resources?page=1 HTTP/1.1
+
+###
+
+### Get second page with limit 5
+GET {{baseUrl}}/api/resources?page=2&limit=5 HTTP/1.1
+
+###
+
+### Get page 1 with limit 3
+GET {{baseUrl}}/api/resources?page=1&limit=3 HTTP/1.1
+
+###
+
+### Get page 1 with limit 20
+GET {{baseUrl}}/api/resources?page=1&limit=20 HTTP/1.1
+
+###
+
+### Pagination with filters - technology category, page 1, limit 5
+GET {{baseUrl}}/api/resources?category=technology&page=1&limit=5 HTTP/1.1
+
+###
+
+### Pagination with search - search "api", page 1, limit 10
+GET {{baseUrl}}/api/resources?search=api&page=1&limit=10 HTTP/1.1
+
+###
+
+### Pagination with multiple filters
+GET {{baseUrl}}/api/resources?status=active&category=technology&page=1&limit=5 HTTP/1.1
+
+###
+
+### Invalid page number (should return 400)
+GET {{baseUrl}}/api/resources?page=0 HTTP/1.1
+
+###
+
+### Invalid limit (too high, should return 400)
+GET {{baseUrl}}/api/resources?limit=200 HTTP/1.1
+
+###
+
+### Invalid limit (negative, should return 400)
+GET {{baseUrl}}/api/resources?limit=-5 HTTP/1.1
+
+###############################################
+# 6. Get Resource by ID
+###############################################
+
+### Get resource with ID 1
+GET {{baseUrl}}/api/resources/1 HTTP/1.1
+
+###
+
+### Get resource with ID 5
+GET {{baseUrl}}/api/resources/5 HTTP/1.1
+
+###
+
+### Get resource with ID 9
+GET {{baseUrl}}/api/resources/9 HTTP/1.1
+
+###
+
+### Get non-existent resource (should return 404)
+GET {{baseUrl}}/api/resources/999 HTTP/1.1
+
+###
+
+### Get resource with invalid ID (should return 400)
+GET {{baseUrl}}/api/resources/abc HTTP/1.1
+
+###############################################
+# 7. Update Resources
+###############################################
+
+### Update resource - change name only
+PUT {{baseUrl}}/api/resources/1 HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "Updated API Documentation"
+}
+
+###
+
+### Update resource - change status to inactive
+PUT {{baseUrl}}/api/resources/2 HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "status": "inactive"
+}
+
+###
+
+### Update resource - change multiple fields
+PUT {{baseUrl}}/api/resources/3 HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "Cloud Services Updated",
+  "description": "Updated description for cloud services",
+  "category": "cloud",
+  "status": "active"
+}
+
+###
+
+### Update resource - change to archived
+PUT {{baseUrl}}/api/resources/4 HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "status": "archived"
+}
+
+###
+
+### Update non-existent resource (should return 404)
+PUT {{baseUrl}}/api/resources/999 HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "This should fail"
+}
+
+###
+
+### Update with invalid ID (should return 400)
+PUT {{baseUrl}}/api/resources/invalid HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "This should fail"
+}
+
+###
+
+### Update with empty body (validation error - at least one field required)
+PUT {{baseUrl}}/api/resources/1 HTTP/1.1
+Content-Type: {{contentType}}
+
+{}
+
+###
+
+### Update with invalid name length (validation error)
+PUT {{baseUrl}}/api/resources/1 HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "ab"
+}
+
+###
+
+### Update with invalid description length (validation error)
+PUT {{baseUrl}}/api/resources/1 HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "description": "short"
+}
+
+###############################################
+# 8. Delete Resources
+###############################################
+
+### Delete resource with ID 9
+DELETE {{baseUrl}}/api/resources/9 HTTP/1.1
+
+###
+
+### Delete resource with ID 18
+DELETE {{baseUrl}}/api/resources/18 HTTP/1.1
+
+###
+
+### Delete non-existent resource (should return 404)
+DELETE {{baseUrl}}/api/resources/999 HTTP/1.1
+
+###
+
+### Delete with invalid ID (should return 400)
+DELETE {{baseUrl}}/api/resources/invalid HTTP/1.1
+
+###############################################
+# 9. Complete Workflow Example
+###############################################
+
+### Step 1: Create a test resource
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "Test Workflow Resource",
+  "description": "This resource will be used to test the complete workflow",
+  "category": "testing",
+  "status": "active"
+}
+
+###
+
+### Step 2: Get all resources to find the ID
+GET {{baseUrl}}/api/resources?name=Test%20Workflow HTTP/1.1
+
+###
+
+### Step 3: Get the specific resource (use ID from step 1)
+# Replace {id} with actual ID from response
+GET {{baseUrl}}/api/resources/26 HTTP/1.1
+
+###
+
+### Step 4: Update the resource
+# Replace {id} with actual ID
+PUT {{baseUrl}}/api/resources/26 HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "description": "Updated description after testing",
+  "status": "inactive"
+}
+
+###
+
+### Step 5: Verify the update
+# Replace {id} with actual ID
+GET {{baseUrl}}/api/resources/26 HTTP/1.1
+
+###
+
+### Step 6: Delete the resource
+# Replace {id} with actual ID
+DELETE {{baseUrl}}/api/resources/26 HTTP/1.1
+
+###
+
+### Step 7: Verify deletion (should return 404)
+# Replace {id} with actual ID
+GET {{baseUrl}}/api/resources/26 HTTP/1.1
+
+###############################################
+# 10. Bulk Testing
+###############################################
+
+### Get resources by different categories
+GET {{baseUrl}}/api/resources?category=mobile HTTP/1.1
+###
+GET {{baseUrl}}/api/resources?category=database HTTP/1.1
+###
+GET {{baseUrl}}/api/resources?category=security HTTP/1.1
+###
+GET {{baseUrl}}/api/resources?category=ai HTTP/1.1
+
+###
+
+### Filter by all statuses
+GET {{baseUrl}}/api/resources?status=active HTTP/1.1
+###
+GET {{baseUrl}}/api/resources?status=inactive HTTP/1.1
+###
+GET {{baseUrl}}/api/resources?status=archived HTTP/1.1
+
+###############################################
+# 11. Validation Error Testing
+###############################################
+
+### Empty name field (validation error)
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "",
+  "description": "Testing empty name field validation",
+  "category": "test"
+}
+
+###
+
+### Name exceeds max length (validation error)
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "This is a very long name that exceeds the maximum allowed length of one hundred characters for resource names",
+  "description": "Testing max length validation for name field",
+  "category": "test"
+}
+
+###
+
+### Description exceeds max length (validation error)
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "Valid Name",
+  "description": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium.",
+  "category": "test"
+}
+
+###
+
+### Multiple validation errors at once
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "ab",
+  "description": "short",
+  "status": "wrong_status"
+}
+
+###
+
+### Extra unknown fields (should be stripped)
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "Test Resource",
+  "description": "Testing unknown fields handling",
+  "category": "test",
+  "status": "active",
+  "extraField": "should be ignored",
+  "anotherField": 123
+}
+
+###############################################
+# 12. Edge Cases & Error Testing
+###############################################
+
+### Create resource with empty name
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "",
+  "description": "Test empty name field",
+  "category": "test"
+}
+
+###
+
+### Create resource with special characters
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "Test-Resource_123!@#",
+  "description": "Testing special characters in resource name and description!@#$%",
+  "category": "test",
+  "status": "active"
+}
+
+###
+
+### Test with very long category name
+POST {{baseUrl}}/api/resources HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "name": "Test Resource",
+  "description": "Testing very long category names",
+  "category": "this_is_a_very_long_category_name_that_might_cause_issues",
+  "status": "active"
+}
+
+###
+
+### Test SQL injection attempt (should be safe)
+GET {{baseUrl}}/api/resources?name='; DROP TABLE resources; -- HTTP/1.1
+
+###
+
+### Test XSS attempt in search (should be safe)
+GET {{baseUrl}}/api/resources?search=<script>alert('xss')</script> HTTP/1.1
+
+###
+
+### Test negative ID
+GET {{baseUrl}}/api/resources/-1 HTTP/1.1
+
+###
+
+### Test zero ID
+GET {{baseUrl}}/api/resources/0 HTTP/1.1
+
+###
+
+### Test very large ID
+GET {{baseUrl}}/api/resources/999999999 HTTP/1.1
+
+###############################################
+# 13. Rate Limiting Test
+###############################################
+# Note: Make 101+ requests quickly to test rate limiting
+# The API allows 100 requests per 15 minutes per IP
+
+### Make a request (repeat this quickly to test rate limiting)
+GET {{baseUrl}}/api/resources HTTP/1.1
