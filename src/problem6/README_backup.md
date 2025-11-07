@@ -15,9 +15,7 @@ A scalable architecture for a live scoreboard system that displays the top 10 us
 │  (Browser)  │
 └──────┬──────┘
        │
-       │ HTTP + SSE
-       │ (GET /scoreboard/stream)
-       │ (POST /score/update)
+       │ HTTP/WebSocket
        │
 ┌──────▼──────────────────────────────────────────┐
 │           Load Balancer / API Gateway           │
@@ -39,7 +37,15 @@ A scalable architecture for a live scoreboard system that displays the top 10 us
 ┌──▼──────┐      ┌──────▼───────┐
 │ Redis   │      │   Database   │
 │ PubSub  │      │  (PostgreSQL)│
-└─────────┘      └──────────────┘
+└──┬──────┘      └──────────────┘
+   │
+   │ Subscribe
+   │
+┌──▼──────────┐
+│  WebSocket  │
+│   Server    │
+│ (Socket.io) │
+└─────────────┘
 ```
 
 ---
@@ -50,52 +56,22 @@ A scalable architecture for a live scoreboard system that displays the top 10 us
 
 #### Components:
 - **Scoreboard UI**: Displays top 10 users in real-time
-- **SSE Client**: Maintains HTTP connection for live updates
+- **WebSocket Client**: Maintains persistent connection for live updates
 - **Action Handler**: Triggers score updates when user completes actions
 
 #### Technologies:
 - React/Vue/Vanilla JS
-- EventSource API (built-in browser API)
+- Socket.io Client
 - JWT for authentication
 
 #### Flow:
 ```javascript
-// Client-side implementation
-// 1. User authenticates
-const token = await login(username, password);
-
-// 2. Establish SSE connection for real-time updates
-const eventSource = new EventSource(
-  `/api/scoreboard/stream?token=${token}`
-);
-
-// 3. Listen for scoreboard updates
-eventSource.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  updateScoreboardUI(data);
-};
-
-// 4. Handle connection errors with automatic reconnection
-eventSource.onerror = (error) => {
-  console.error('SSE connection error:', error);
-  // Browser automatically reconnects
-};
-
-// 5. When user completes action, submit via HTTP POST
-async function submitScore(actionId, actionToken) {
-  const response = await fetch('/api/score/update', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ actionId, actionToken, timestamp: Date.now() })
-  });
-  
-  if (!response.ok) {
-    throw new Error('Failed to update score');
-  }
-}
+// Pseudo-code
+1. User authenticates → Receives JWT token
+2. Establish WebSocket connection with JWT
+3. Display current top 10 scoreboard
+4. User completes action → Send authenticated API request
+5. Receive real-time updates via WebSocket
 ```
 
 ---
@@ -127,27 +103,12 @@ async function submitScore(actionId, actionToken) {
 #### Key Endpoints:
 
 ```typescript
-// Real-time scoreboard stream (SSE)
-GET /api/scoreboard/stream
-Query: ?token=<JWT>
-Response: text/event-stream
-
-// Submit score update
 POST /api/score/update
 Headers: Authorization: Bearer <JWT>
 Body: {
   action_id: string,
   action_token: string,  // One-time token
   timestamp: number
-}
-
-// Initialize action (get one-time token)
-POST /api/action/start
-Headers: Authorization: Bearer <JWT>
-Response: {
-  action_id: string,
-  action_token: string,
-  expires_at: number
 }
 ```
 
@@ -332,87 +293,39 @@ await redis.expire(key, 60);
 
 ---
 
-### 6. **SSE Stream Handler**
+### 6. **WebSocket Server**
 
 #### Purpose:
-- Maintain HTTP connection for real-time updates
-- Push scoreboard changes to connected clients
+- Maintain persistent connections with clients
+- Push real-time updates to connected users
 
-#### Implementation:
+#### Flow:
 
 ```typescript
-// Server-side (Express)
-import express from 'express';
-import { createClient } from 'redis';
-
-const app = express();
-const redisSubscriber = createClient();
-
-// SSE endpoint for real-time scoreboard updates
-app.get('/api/scoreboard/stream', async (req, res) => {
-  // 1. Authenticate via query param or header
-  const token = req.query.token || req.headers.authorization?.split(' ')[1];
-  
+// Server-side (Socket.io)
+io.use(async (socket, next) => {
+  // Authenticate WebSocket connection
+  const token = socket.handshake.auth.token;
   try {
     const decoded = jwt.verify(token, SECRET_KEY);
-    const userId = decoded.userId;
-    
-    // 2. Set SSE headers
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
-    
-    // 3. Send initial scoreboard data
-    const top10 = await getTop10Scores();
-    res.write(`data: ${JSON.stringify(top10)}\n\n`);
-    
-    // 4. Subscribe to Redis PubSub for updates
-    const subscriber = redisSubscriber.duplicate();
-    await subscriber.connect();
-    await subscriber.subscribe('scoreboard_updates', (message) => {
-      const update = JSON.parse(message);
-      // Send update to this client
-      res.write(`data: ${JSON.stringify(update)}\n\n`);
-    });
-    
-    // 5. Keep connection alive with heartbeat
-    const heartbeat = setInterval(() => {
-      res.write(': heartbeat\n\n');
-    }, 30000); // Every 30 seconds
-    
-    // 6. Cleanup on connection close
-    req.on('close', () => {
-      clearInterval(heartbeat);
-      subscriber.unsubscribe('scoreboard_updates');
-      subscriber.quit();
-      res.end();
-    });
-    
-  } catch (error) {
-    res.status(401).json({ error: 'Unauthorized' });
+    socket.userId = decoded.userId;
+    next();
+  } catch (err) {
+    next(new Error('Authentication error'));
   }
 });
 
-// Score update endpoint (regular HTTP POST)
-app.post('/api/score/update', async (req, res) => {
-  try {
-    // Validate and update score (existing security measures)
-    const result = await updateUserScore(req);
-    
-    // Publish update to all SSE clients via Redis
-    await redisPublisher.publish('scoreboard_updates', JSON.stringify({
-      userId: result.userId,
-      username: result.username,
-      newScore: result.score,
-      rank: result.rank,
-      timestamp: Date.now()
-    }));
-    
-    res.json({ success: true, data: result });
-  } catch (error) {
-    res.status(400).json({ success: false, error: error.message });
-  }
+// Subscribe to Redis PubSub
+redisClient.subscribe('scoreboard_updates');
+redisClient.on('message', (channel, message) => {
+  const update = JSON.parse(message);
+  // Broadcast to all connected clients
+  io.emit('scoreboard_update', update);
+});
+
+// Client-side
+socket.on('scoreboard_update', (data) => {
+  updateScoreboardUI(data);
 });
 ```
 
@@ -446,8 +359,8 @@ app.post('/api/score/update', async (req, res) => {
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                2. Establish SSE Connection                   │
-│  GET /api/scoreboard/stream → Receive initial top 10        │
+│                2. Establish WebSocket Connection             │
+│  Client connects with JWT → Receive initial top 10          │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -492,7 +405,7 @@ app.post('/api/score/update', async (req, res) => {
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
 │                    9. Real-Time Push                         │
-│  SSE → Push to all connected clients via Redis PubSub       │
+│  WebSocket → Push to all connected clients                  │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -507,15 +420,14 @@ app.post('/api/score/update', async (req, res) => {
 
 ### Backend:
 - **Application Server**: Node.js + Express / NestJS
-- **Real-time Updates**: Server-Sent Events (SSE)
+- **WebSocket**: Socket.io
 - **Database**: PostgreSQL (for ACID compliance)
 - **Cache/PubSub**: Redis
 - **Authentication**: JWT (jsonwebtoken)
 
 ### Frontend:
 - **Framework**: React / Vue.js / Next.js
-- **Real-time Client**: EventSource API (native browser)
-- **HTTP Client**: fetch / axios
+- **WebSocket Client**: Socket.io-client
 - **State Management**: Redux / Zustand / Pinia
 
 ### Infrastructure:
@@ -530,10 +442,10 @@ app.post('/api/score/update', async (req, res) => {
 ## Scalability Considerations
 
 ### Horizontal Scaling:
-1. **Multiple App Servers**: Behind load balancer (no sticky sessions needed)
-2. **Redis Cluster**: For high availability and PubSub
+1. **Multiple App Servers**: Behind load balancer
+2. **Redis Cluster**: For high availability
 3. **Database Replication**: Read replicas for scoreboard queries
-4. **SSE Connections**: Distributed across servers via Redis PubSub
+4. **WebSocket Servers**: Multiple instances with Redis adapter
 
 ### Performance Optimization:
 1. **CDN**: Cache static assets
@@ -548,12 +460,11 @@ app.post('/api/score/update', async (req, res) => {
 
 ### Key Metrics:
 - Request rate per endpoint
-- Active SSE connection count
+- WebSocket connection count
 - Score update latency
 - Failed authentication attempts
 - Rate limit violations
 - Database query performance
-- Redis PubSub message rate
 
 ### Alerts:
 - Spike in failed authentications (potential attack)
@@ -561,7 +472,6 @@ app.post('/api/score/update', async (req, res) => {
 - Database connection pool exhaustion
 - Redis connection failures
 - Unusual score increases
-- SSE connection drops exceeding threshold
 
 ---
 
@@ -594,71 +504,14 @@ if (scoreIncrease > THRESHOLD ||
 
 ---
 
----
-
-## Why SSE Instead of WebSockets?
-
-### Advantages of SSE for This Use Case:
-
-| Feature | SSE | WebSocket |
-|---------|-----|-----------|
-| **Directionality** | One-way (perfect for scoreboard) | Bidirectional |
-| **Protocol** | HTTP | Custom protocol over TCP |
-| **Browser Support** | Built-in, no library needed | Requires library (Socket.io) |
-| **Auto Reconnection** | ✅ Automatic | ❌ Manual implementation |
-| **Firewall/Proxy** | ✅ Works everywhere | ⚠️ May be blocked |
-| **Load Balancing** | ✅ Standard HTTP (no sticky sessions) | ⚠️ Requires sticky sessions |
-| **Infrastructure** | ✅ Simpler | More complex |
-| **Scalability** | ✅ Better (stateless) | More resource-intensive |
-| **Debugging** | ✅ Standard HTTP tools | Requires special tools |
-
-### SSE Limitations:
-- ❌ One-directional only (but we only need server → client)
-- ❌ Text-based (but JSON works perfectly)
-- ⚠️ Limited concurrent connections per domain (6 in HTTP/1.1, unlimited in HTTP/2)
-
-### Solution for Limitations:
-- Use HTTP/2 (unlimited connections)
-- Score updates via separate POST requests (already stateless)
-- Perfect separation of concerns: Read via SSE, Write via POST
-
----
-
-## Alternative Approaches Considered
-
-### 1. **Long Polling** ❌
-- Higher latency
-- More resource intensive
-- Battery drain on mobile
-
-### 2. **WebSocket** ⚠️
-- Overkill for one-way communication
-- Complex infrastructure
-- Harder to scale
-
-### 3. **HTTP/2 Server Push** ❌
-- Being deprecated by browsers
-- Not recommended
-
-### 4. **GraphQL Subscriptions** ⚠️
-- Uses WebSocket underneath
-- Unnecessary complexity for simple scoreboard
-
----
-
 ## Conclusion
 
-This SSE-based architecture provides:
-- ✅ Real-time scoreboard updates with automatic reconnection
+This architecture provides:
+- ✅ Real-time scoreboard updates via WebSocket
 - ✅ Protection against unauthorized score manipulation
-- ✅ Superior scalability (no sticky sessions, standard HTTP)
+- ✅ Scalability for high traffic
 - ✅ Comprehensive audit trail
 - ✅ Multiple layers of security
 - ✅ High availability and fault tolerance
-- ✅ Simpler infrastructure and debugging
-- ✅ Better firewall/proxy compatibility
-- ✅ Lower resource usage
-
-**The combination of SSE for real-time updates and HTTP POST for score submissions provides the best balance of simplicity, security, and scalability for a scoreboard system.**
 
 The multi-layered security approach ensures that malicious users cannot easily manipulate scores, while legitimate users enjoy a seamless real-time experience.
